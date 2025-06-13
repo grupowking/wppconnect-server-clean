@@ -1,3 +1,8 @@
+# Invalidador de cache para forçar a reconstrução total
+ENV CACHE_BUSTER=202506131415
+# ----- ESTÁGIO 1: BUILDER -----
+FROM node:22.15.0 AS builder
+# ... resto do seu arquivo Dockerfile ...
 # ----- ESTÁGIO 1: BUILDER -----
 # Usamos uma imagem Node completa para ter acesso a todas as ferramentas de build.
 FROM node:22.15.0-alpine AS builder

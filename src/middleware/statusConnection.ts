@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -45,7 +45,8 @@ export default async function statusConnection(
             .catch((error) => console.log(error));
           if (!profile?.numberExists) {
             const num = (contact as any).split('@')[0];
-            res.status(400).json({
+            // ✅ AQUI: Adicione 'return' para parar a execução
+            return res.status(400).json({
               response: null,
               status: 'Connected',
               message: `O número ${num} não existe.`,
@@ -61,16 +62,21 @@ export default async function statusConnection(
       }
       req.body.phone = localArr;
     } else {
-      res.status(404).json({
+      // ✅ AQUI: Adicione 'return' para parar a execução
+      return res.status(404).json({
         response: null,
         status: 'Disconnected',
         message: 'A sessão do WhatsApp não está ativa.',
       });
     }
-    next();
+
+    // ✅ AGORA 'next()' só é chamado no "caminho feliz"
+    return next();
+    
   } catch (error) {
     req.logger.error(error);
-    res.status(404).json({
+    // ✅ BOA PRÁTICA: Adicione 'return' aqui também
+    return res.status(404).json({
       response: null,
       status: 'Disconnected',
       message: 'A sessão do WhatsApp não está ativa.',
