@@ -5,7 +5,7 @@
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -49,7 +49,6 @@ export default class CreateSessionUtil {
       const myTokenStore = tokenStore.createTokenStory(client);
       const tokenData = await myTokenStore.getToken(session);
 
-      // we need this to update phone in config every time session starts, so we can ask for code for it again.
       myTokenStore.setToken(session, tokenData ?? {});
 
       this.startChatWootClient(client);
@@ -59,7 +58,8 @@ export default class CreateSessionUtil {
           userDataDir: req.serverOptions.customUserDataDir + session,
         };
       }
-
+      
+      // VERSÃO CORRIGIDA DA CRIAÇÃO DO CLIENTE
       const wppClient = await create(
         Object.assign(
           {},
@@ -69,13 +69,13 @@ export default class CreateSessionUtil {
             session: session,
             phoneNumber: client.config.phone ?? null,
             deviceName:
-              client.config.phone == undefined // bug when using phone code this shouldn't be passed (https://github.com/wppconnect-team/wppconnect-server/issues/1687#issuecomment-2099357874)
+              client.config.phone == undefined
                 ? client.config?.deviceName ||
                   req.serverOptions.deviceName ||
                   'WppConnect'
                 : undefined,
             poweredBy:
-              client.config.phone == undefined // bug when using phone code this shouldn't be passed (https://github.com/wppconnect-team/wppconnect-server/issues/1687#issuecomment-2099357874)
+              client.config.phone == undefined
                 ? client.config?.poweredBy ||
                   req.serverOptions.poweredBy ||
                   'WPPConnect-Server'
@@ -117,9 +117,23 @@ export default class CreateSessionUtil {
                 req.logger.info(statusFind + '\n\n');
               } catch (error) {}
             },
+            //  BLOCO ADICIONADO PARA CORRIGIR O PROBLEMA DE CONGELAMENTO
+            puppeteerOptions: {
+              args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-accelerated-2d-canvas',
+                '--no-first-run',
+                '--no-zygote',
+                '--single-process', 
+                '--disable-gpu'
+              ],
+            },
           }
         )
       );
+      // FIM DA ALTERAÇÃO
 
       client = clientsArray[session] = Object.assign(wppClient, client);
       await this.start(req, client);
@@ -240,7 +254,6 @@ export default class CreateSessionUtil {
       Object.assign(client, { status: 'CONNECTED', qrcode: null });
 
       req.logger.info(`Started Session: ${client.session}`);
-      //callWebHook(client, req, 'session-logged', { status: 'CONNECTED'});
       req.io.emit('session-logged', { status: true, session: client.session });
       startHelper(client, req);
     } catch (error) {
