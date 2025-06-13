@@ -1,28 +1,27 @@
 # ----- ESTÁGIO 1: BUILDER -----
-FROM node:22.15.0 AS builder
+# MUDANÇA AQUI: Usando a versão Node 20 LTS, mais estável
+FROM node:20 AS builder
 
 WORKDIR /usr/src/wpp-server
 
-# --- NOVO TRUQUE PARA INVALIDAR O CACHE ---
-# Altere o número abaixo para forçar uma nova construção do zero.
-ARG CACHE_BUSTER=202506131430
+# --- Invalidador de cache ---
+# MUDANÇA AQUI: Alterando o número para garantir um build 100% novo
+ARG CACHE_BUSTER=202506131440
 RUN echo "Forçando rebuild com cache buster: $CACHE_BUSTER"
 
 # Instala as dependências de sistema para o build (sharp, etc.)
-RUN apk update && \
-    apk add --no-cache \
-    vips-dev \
-    fftw-dev \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libvips-dev \
     gcc \
     g++ \
     make \
-    libc6-compat \
-    && rm -rf /var/cache/apk/*
+    && rm -rf /var/lib/apt/lists/*
+# NOTA: Imagens Node baseadas em Debian (não Alpine) usam 'apt-get' em vez de 'apk'
 
 # Copia os arquivos de dependência
 COPY package.json yarn.lock ./
 
-# Instala TODAS as dependências, incluindo as de desenvolvimento (typescript, etc.)
+# Instala TODAS as dependências, incluindo as de desenvolvimento
 RUN yarn install --pure-lockfile
 
 # Copia o restante do código-fonte do projeto
@@ -33,14 +32,14 @@ RUN yarn build
 
 
 # ----- ESTÁGIO 2: PRODUÇÃO -----
-FROM node:22.15.0-alpine
+# MUDANÇA AQUI: Usando a versão Node 20-alpine LTS, mais estável e leve
+FROM node:20-alpine
 
 WORKDIR /usr/src/wpp-server
 
 # Instala SOMENTE as dependências de sistema necessárias para RODAR a aplicação
 RUN apk update && \
     apk add --no-cache \
-    libc6-compat \
     chromium \
     && rm -rf /var/cache/apk/*
 
@@ -53,11 +52,11 @@ RUN yarn install --production --pure-lockfile
 # Limpa o cache do yarn
 RUN yarn cache clean
 
-# A MÁGICA: Copia APENAS a pasta 'dist' (com o código compilado) do estágio 'builder'
+# Copia APENAS a pasta 'dist' (com o código compilado) do estágio 'builder'
 COPY --from=builder /usr/src/wpp-server/dist ./dist
 
 # Expõe a porta da aplicação
 EXPOSE 21465
 
-# Define o comando para iniciar o servidor, apontando para o arquivo correto
+# Define o comando para iniciar o servidor
 ENTRYPOINT ["node", "dist/server.js"]
