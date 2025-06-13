@@ -1,1038 +1,527 @@
-/*
- * Copyright 2021 WPPConnect Team
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// controller/messageController.ts
 import { Request, Response } from 'express';
 
-import { unlinkAsync } from '../util/functions';
+// Tipo para o objeto de sessão do WPPConnect (ajuste conforme sua implementação)
+interface WPPSession {
+  sendText: (to: string, message: string) => Promise<any>;
+  sendVoice: (to: string, path: string) => Promise<any>;
+  sendImage: (to: string, path: string, filename?: string, caption?: string) => Promise<any>;
+  sendFile: (to: string, path: string, filename?: string, caption?: string) => Promise<any>;
+  sendVideo: (to: string, path: string, filename?: string, caption?: string) => Promise<any>;
+  sendContact: (to: string, contactId: string) => Promise<any>;
+  sendLocation: (to: string, lat: number, lng: number, title?: string) => Promise<any>;
+  sendLinkPreview: (to: string, url: string, title?: string) => Promise<any>;
+  sendButtons: (to: string, title: string, buttons: any[]) => Promise<any>;
+  sendList: (to: string, title: string, description: string, buttonText: string, sections: any[]) => Promise<any>;
+  reply: (messageId: string, message: string) => Promise<any>;
+  editMessage: (messageId: string, newMessage: string) => Promise<any>;
+  deleteMessage: (messageId: string) => Promise<any>;
+  getMessages: (chatId: string) => Promise<any>;
+  getChats: () => Promise<any>;
+  getContacts: () => Promise<any>;
+  getConnectionState: () => Promise<any>;
+  setMyStatus: (status: string) => Promise<any>;
+  getMyStatus: () => Promise<any>;
+}
 
-function returnError(req: Request, res: Response, error: any) {
-  req.logger.error(error);
-  res.status(500).json({
-    status: 'Error',
-    message: 'Erro ao enviar a mensagem.',
-    error: error,
+// Simulação de como você obtém a sessão - ajuste conforme sua implementação
+declare const sessions: { [key: string]: WPPSession };
+
+// Helper para obter sessão
+function getSession(sessionName: string): WPPSession | null {
+  return sessions[sessionName] || null;
+}
+
+// Helper para resposta de erro padrão - COM VERIFICAÇÃO DE HEADERS
+function sendError(res: Response, message: string, statusCode: number = 400): Response | void {
+  if (res.headersSent) {
+    console.warn('⚠️ Attempted to send error response but headers already sent:', message);
+    return;
+  }
+  
+  return res.status(statusCode).json({
+    success: false,
+    error: message
   });
 }
 
-async function returnSucess(res: any, data: any) {
-  res.status(201).json({ status: 'success', response: data, mapper: 'return' });
-}
-
-export async function sendMessage(req: Request, res: Response) {
-  /**
-   * #swagger.tags = ["Messages"]
-     #swagger.autoBody=false
-     #swagger.security = [{
-            "bearerAuth": []
-     }]
-     #swagger.parameters["session"] = {
-      schema: 'NERDWHATS_AMERICA'
-     }
-    #swagger.requestBody = {
-      required: true,
-      "@content": {
-        "application/json": {
-          schema: {
-            type: "object",
-            properties: {
-              phone: { type: "string" },
-              isGroup: { type: "boolean" },
-              isNewsletter: { type: "boolean" },
-              isLid: { type: "boolean" },
-              message: { type: "string" },
-              options: { type: "object" },
-            }
-          },
-          examples: {
-            "Send message to contact": {
-              value: { 
-                phone: '5521999999999',
-                isGroup: false,
-                isNewsletter: false,
-                isLid: false,
-                message: 'Hi from WPPConnect',
-              }
-            },
-            "Send message with reply": {
-              value: { 
-                phone: '5521999999999',
-                isGroup: false,
-                isNewsletter: false,
-                isLid: false,
-                message: 'Hi from WPPConnect with reply',
-                options: {
-                  quotedMsg: 'true_...@c.us_3EB01DE65ACC6_out',
-                }
-              }
-            },
-            "Send message to group": {
-              value: {
-                phone: '8865623215244578',
-                isGroup: true,
-                message: 'Hi from WPPConnect',
-              }
-            },
-          }
-        }
-      }
-     }
-   */
-  const { phone, message } = req.body;
-
-  const options = req.body.options || {};
-
-  try {
-    const results: any = [];
-    for (const contato of phone) {
-      results.push(await req.client.sendText(contato, message, options));
-    }
-
-    if (results.length === 0) res.status(400).json('Error sending message');
-    req.io.emit('mensagem-enviada', results);
-    returnSucess(res, results);
-  } catch (error) {
-    returnError(req, res, error);
+// Helper para resposta de sucesso padrão - COM VERIFICAÇÃO DE HEADERS
+function sendSuccess(res: Response, data: any = null, message: string = 'Success'): Response | void {
+  if (res.headersSent) {
+    console.warn('⚠️ Attempted to send success response but headers already sent:', message);
+    return;
   }
-}
-
-export async function editMessage(req: Request, res: Response) {
-  /**
-   * #swagger.tags = ["Messages"]
-     #swagger.autoBody=false
-     #swagger.security = [{
-            "bearerAuth": []
-     }]
-     #swagger.parameters["session"] = {
-      schema: 'NERDWHATS_AMERICA'
-     }
-    #swagger.requestBody = {
-      required: true,
-      "@content": {
-        "application/json": {
-          schema: {
-            type: "object",
-            properties: {
-              id: { type: "string" },
-              newText: { type: "string" },
-              options: { type: "object" },
-            }
-          },
-          examples: {
-            "Edit a message": {
-              value: { 
-                id: 'true_5521999999999@c.us_3EB04FCAA1527EB6D9DEC8',
-                newText: 'New text for message'
-              }
-            },
-          }
-        }
-      }
-     }
-   */
-  const { id, newText } = req.body;
-
-  const options = req.body.options || {};
-  try {
-    const edited = await (req.client as any).editMessage(id, newText, options);
-
-    req.io.emit('edited-message', edited);
-    returnSucess(res, edited);
-  } catch (error) {
-    returnError(req, res, error);
-  }
-}
-
-export async function sendFile(req: Request, res: Response) {
-  /**
-   * #swagger.tags = ["Messages"]
-     #swagger.autoBody=false
-     #swagger.security = [{
-            "bearerAuth": []
-     }]
-     #swagger.parameters["session"] = {
-      schema: 'NERDWHATS_AMERICA'
-     }
-     #swagger.requestBody = {
-      required: true,
-      "@content": {
-        "application/json": {
-            schema: {
-                type: "object",
-                properties: {
-                    "phone": { type: "string" },
-                    "isGroup": { type: "boolean" },
-                    "isNewsletter": { type: "boolean" },
-                    "isLid": { type: "boolean" },
-                    "filename": { type: "string" },
-                    "caption": { type: "string" },
-                    "base64": { type: "string" }
-                }
-            },
-            examples: {
-                "Default": {
-                    value: {
-                        "phone": "5521999999999",
-                        "isGroup": false,
-                        "isNewsletter": false,
-                        "isLid": false,
-                        "filename": "file name lol",
-                        "caption": "caption for my file",
-                        "base64": "<base64> string"
-                    }
-                }
-            }
-        }
-      }
-    }
-   */
-  const {
-    phone,
-    path,
-    base64,
-    filename = 'file',
+  
+  return res.json({
+    success: true,
     message,
-    caption,
-    quotedMessageId,
-  } = req.body;
+    data
+  });
+}
 
-  const options = req.body.options || {};
+// Wrapper para tratamento de erro global
+function handleControllerError(error: any, res: Response, operation: string): Response | void {
+  console.error(`❌ Error in ${operation}:`, error);
+  
+  if (res.headersSent) {
+    console.warn(`⚠️ Headers already sent for ${operation}, cannot send error response`);
+    return;
+  }
+  
+  return res.status(500).json({
+    success: false,
+    error: `Failed to ${operation}`,
+    details: process.env.NODE_ENV === 'development' ? error.message : undefined
+  });
+}
 
-  if (!path && !req.file && !base64)
-    res.status(401).send({
-      message: 'Sending the file is mandatory',
-    });
+// =================== MAIN FUNCTIONS ===================
 
-  const pathFile = path || base64 || req.file?.path;
-  const msg = message || caption;
-
+export async function sendMessage(req: Request, res: Response): Promise<Response | void> {
   try {
-    const results: any = [];
-    for (const contact of phone) {
-      results.push(
-        await req.client.sendFile(contact, pathFile, {
-          filename: filename,
-          caption: msg,
-          quotedMsg: quotedMessageId,
-          ...options,
-        })
-      );
+    console.log('🚀 sendMessage started for session:', req.params.session);
+    
+    const { session } = req.params;
+    const { phone, message } = req.body;
+
+    if (!phone || !message) {
+      return sendError(res, 'Phone and message are required');
     }
 
-    if (results.length === 0) res.status(400).json('Error sending message');
-    if (req.file) await unlinkAsync(pathFile);
-    returnSucess(res, results);
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
+
+    console.log('📱 Sending message to:', phone);
+    const result = await client.sendText(phone, message);
+    
+    console.log('✅ Message sent successfully');
+    return sendSuccess(res, result, 'Message sent successfully');
+
   } catch (error) {
-    returnError(req, res, error);
+    return handleControllerError(error, res, 'send message');
   }
 }
 
-export async function sendVoice(req: Request, res: Response) {
-  /**
-   * #swagger.tags = ["Messages"]
-     #swagger.autoBody=false
-     #swagger.security = [{
-            "bearerAuth": []
-     }]
-     #swagger.parameters["session"] = {
-      schema: 'NERDWHATS_AMERICA'
-     }
-     #swagger.requestBody = {
-        required: true,
-        "@content": {
-            "application/json": {
-                schema: {
-                    type: "object",
-                    properties: {
-                        "phone": { type: "string" },
-                        "isGroup": { type: "boolean" },
-                        "path": { type: "string" },
-                        "quotedMessageId": { type: "string" }
-                    }
-                },
-                examples: {
-                    "Default": {
-                        value: {
-                            "phone": "5521999999999",
-                            "isGroup": false,
-                            "path": "<path_file>",
-                            "quotedMessageId": "message Id"
-                        }
-                    }
-                }
-            }
-        }
-    }
-   */
-  const {
-    phone,
-    path,
-    filename = 'Voice Audio',
-    message,
-    quotedMessageId,
-  } = req.body;
-
+export async function sendVoice(req: Request, res: Response): Promise<Response | void> {
   try {
-    const results: any = [];
-    for (const contato of phone) {
-      results.push(
-        await req.client.sendPtt(
-          contato,
-          path,
-          filename,
-          message,
-          quotedMessageId
-        )
-      );
+    const { session } = req.params;
+    const { phone, path } = req.body;
+
+    if (!phone || !path) {
+      return sendError(res, 'Phone and path are required');
     }
 
-    if (results.length === 0) res.status(400).json('Error sending message');
-    returnSucess(res, results);
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
+
+    const result = await client.sendVoice(phone, path);
+    return sendSuccess(res, result, 'Voice message sent successfully');
+
   } catch (error) {
-    returnError(req, res, error);
+    return handleControllerError(error, res, 'send voice');
   }
 }
 
-export async function sendVoice64(req: Request, res: Response) {
-  /**
-   * #swagger.tags = ["Messages"]
-     #swagger.autoBody=false
-     #swagger.security = [{
-            "bearerAuth": []
-     }]
-     #swagger.parameters["session"] = {
-      schema: 'NERDWHATS_AMERICA'
-     }
-     #swagger.requestBody = {
-        required: true,
-        "@content": {
-            "application/json": {
-                schema: {
-                    type: "object",
-                    properties: {
-                        "phone": { type: "string" },
-                        "isGroup": { type: "boolean" },
-                        "base64Ptt": { type: "string" }
-                    }
-                },
-                examples: {
-                    "Default": {
-                        value: {
-                            "phone": "5521999999999",
-                            "isGroup": false,
-                            "base64Ptt": "<base64_string>"
-                        }
-                    }
-                }
-            }
-        }
-    }
-   */
-  const { phone, base64Ptt, quotedMessageId } = req.body;
-
+export async function replyMessage(req: Request, res: Response): Promise<Response | void> {
   try {
-    const results: any = [];
-    for (const contato of phone) {
-      results.push(
-        await req.client.sendPttFromBase64(
-          contato,
-          base64Ptt,
-          'Voice Audio',
-          '',
-          quotedMessageId
-        )
-      );
+    const { session } = req.params;
+    const { messageId, message } = req.body;
+
+    if (!messageId || !message) {
+      return sendError(res, 'MessageId and message are required');
     }
 
-    if (results.length === 0) res.status(400).json('Error sending message');
-    returnSucess(res, results);
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
+
+    const result = await client.reply(messageId, message);
+    return sendSuccess(res, result, 'Reply sent successfully');
+
   } catch (error) {
-    returnError(req, res, error);
+    return handleControllerError(error, res, 'reply message');
   }
 }
 
-export async function sendLinkPreview(req: Request, res: Response) {
-  /**
-   * #swagger.tags = ["Messages"]
-     #swagger.autoBody=false
-     #swagger.security = [{
-            "bearerAuth": []
-     }]
-     #swagger.parameters["session"] = {
-      schema: 'NERDWHATS_AMERICA'
-     }
-     #swagger.requestBody = {
-        required: true,
-        "@content": {
-            "application/json": {
-                schema: {
-                    type: "object",
-                    properties: {
-                        "phone": { type: "string" },
-                        "isGroup": { type: "boolean" },
-                        "url": { type: "string" },
-                        "caption": { type: "string" }
-                    }
-                },
-                examples: {
-                    "Default": {
-                        value: {
-                            "phone": "5521999999999",
-                            "isGroup": false,
-                            "url": "http://www.link.com",
-                            "caption": "Text for describe link"
-                        }
-                    }
-                }
-            }
-        }
-    }
-   */
-  const { phone, url, caption } = req.body;
-
+export async function editMessage(req: Request, res: Response): Promise<Response | void> {
   try {
-    const results: any = [];
-    for (const contato of phone) {
-      results.push(
-        await req.client.sendLinkPreview(`${contato}`, url, caption)
-      );
+    const { session } = req.params;
+    const { messageId, newMessage } = req.body;
+
+    if (!messageId || !newMessage) {
+      return sendError(res, 'MessageId and newMessage are required');
     }
 
-    if (results.length === 0) res.status(400).json('Error sending message');
-    returnSucess(res, results);
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
+
+    const result = await client.editMessage(messageId, newMessage);
+    return sendSuccess(res, result, 'Message edited successfully');
+
   } catch (error) {
-    returnError(req, res, error);
+    return handleControllerError(error, res, 'edit message');
   }
 }
 
-export async function sendLocation(req: Request, res: Response) {
-  /**
-   * #swagger.tags = ["Messages"]
-     #swagger.autoBody=false
-     #swagger.security = [{
-            "bearerAuth": []
-     }]
-     #swagger.parameters["session"] = {
-      schema: 'NERDWHATS_AMERICA'
-     }
-     #swagger.requestBody = {
-        required: true,
-        "@content": {
-            "application/json": {
-                schema: {
-                    type: "object",
-                    properties: {
-                        "phone": { type: "string" },
-                        "isGroup": { type: "boolean" },
-                        "lat": { type: "string" },
-                        "lng": { type: "string" },
-                        "title": { type: "string" },
-                        "address": { type: "string" }
-                    }
-                },
-                examples: {
-                    "Default": {
-                        value: {
-                            "phone": "5521999999999",
-                            "isGroup": false,
-                            "lat": "-89898322",
-                            "lng": "-545454",
-                            "title": "Rio de Janeiro",
-                            "address": "Av. N. S. de Copacabana, 25, Copacabana"
-                        }
-                    }
-                }
-            }
-        }
-    }
-   */
-  const { phone, lat, lng, title, address } = req.body;
-
+export async function sendStatusText(req: Request, res: Response): Promise<Response | void> {
   try {
-    const results: any = [];
-    for (const contato of phone) {
-      results.push(
-        await req.client.sendLocation(contato, {
-          lat: lat,
-          lng: lng,
-          address: address,
-          name: title,
-        })
-      );
+    const { session } = req.params;
+    const { status } = req.body;
+
+    if (!status) {
+      return sendError(res, 'Status text is required');
     }
 
-    if (results.length === 0) res.status(400).json('Error sending message');
-    returnSucess(res, results);
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
+
+    const result = await client.setMyStatus(status);
+    return sendSuccess(res, result, 'Status updated successfully');
+
   } catch (error) {
-    returnError(req, res, error);
+    return handleControllerError(error, res, 'update status');
   }
 }
 
-export async function sendButtons(req: Request, res: Response) {
-  /**
-   * #swagger.tags = ["Messages"]
-     #swagger.autoBody=false
-     #swagger.security = [{
-            "bearerAuth": []
-     }]
-     #swagger.parameters["session"] = {
-      schema: 'NERDWHATS_AMERICA',
-     }
-     #swagger.deprecated=true
-   */
-  const { phone, message, options } = req.body;
-
+export async function sendLinkPreview(req: Request, res: Response): Promise<Response | void> {
   try {
-    const results: any = [];
+    const { session } = req.params;
+    const { phone, url, title } = req.body;
 
-    for (const contact of phone) {
-      results.push(await req.client.sendText(contact, message, options));
+    if (!phone || !url) {
+      return sendError(res, 'Phone and url are required');
     }
 
-    if (results.length === 0)
-      return returnError(req, res, 'Error sending message with buttons');
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
 
-    returnSucess(res, phone);
+    const result = await client.sendLinkPreview(phone, url, title);
+    return sendSuccess(res, result, 'Link preview sent successfully');
+
   } catch (error) {
-    returnError(req, res, error);
+    return handleControllerError(error, res, 'send link preview');
   }
 }
 
-export async function sendListMessage(req: Request, res: Response) {
-  /**
-   * #swagger.tags = ["Messages"]
-     #swagger.autoBody=false
-     #swagger.security = [{
-            "bearerAuth": []
-     }]
-     #swagger.parameters["session"] = {
-      schema: 'NERDWHATS_AMERICA',
-     }
-     #swagger.requestBody = {
-      required: true,
-      "@content": {
-        "application/json": {
-          schema: {
-            type: "object",
-            properties: {
-              phone: { type: "string" },
-              isGroup: { type: "boolean" },
-              description: { type: "string" },
-              sections: { type: "array" },
-              buttonText: { type: "string" },
-            }
-          },
-          examples: {
-            "Send list message": {
-              value: { 
-                phone: '5521999999999',
-                isGroup: false,
-                description: 'Desc for list',
-                buttonText: 'Select a option',
-                sections: [
-                  {
-                    title: 'Section 1',
-                    rows: [
-                      {
-                        rowId: 'my_custom_id',
-                        title: 'Test 1',
-                        description: 'Description 1',
-                      },
-                      {
-                        rowId: '2',
-                        title: 'Test 2',
-                        description: 'Description 2',
-                      },
-                    ],
-                  },
-                ],
-              }
-            },
-          }
-        }
-      }
-     }
-   */
-  const {
-    phone,
-    description = '',
-    sections,
-    buttonText = 'SELECIONE UMA OPÇÃO',
-  } = req.body;
-
+export async function sendLocation(req: Request, res: Response): Promise<Response | void> {
   try {
-    const results: any = [];
+    const { session } = req.params;
+    const { phone, lat, lng, title } = req.body;
 
-    for (const contact of phone) {
-      results.push(
-        await req.client.sendListMessage(contact, {
-          buttonText: buttonText,
-          description: description,
-          sections: sections,
-        })
-      );
+    if (!phone || !lat || !lng) {
+      return sendError(res, 'Phone, lat and lng are required');
     }
 
-    if (results.length === 0)
-      return returnError(req, res, 'Error sending list buttons');
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
 
-    returnSucess(res, results);
+    const result = await client.sendLocation(phone, lat, lng, title);
+    return sendSuccess(res, result, 'Location sent successfully');
+
   } catch (error) {
-    returnError(req, res, error);
+    return handleControllerError(error, res, 'send location');
   }
 }
 
-export async function sendOrderMessage(req: Request, res: Response) {
-  /**
-   * #swagger.tags = ["Messages"]
-     #swagger.autoBody=false
-     #swagger.security = [{
-            "bearerAuth": []
-     }]
-     #swagger.parameters["session"] = {
-      schema: 'NERDWHATS_AMERICA'
-     }
-    #swagger.requestBody = {
-      required: true,
-      "@content": {
-        "application/json": {
-          schema: {
-            type: "object",
-            properties: {
-              phone: { type: "string" },
-              isGroup: { type: "boolean" },
-              items: { type: "object" },
-              options: { type: "object" },
-            }
-          },
-          examples: {
-            "Send with custom items": {
-              value: { 
-                phone: '5521999999999',
-                isGroup: false,
-                items: [
-                  {
-                    type: 'custom',
-                    name: 'Item test',
-                    price: 120000,
-                    qnt: 2,
-                  },
-                  {
-                    type: 'custom',
-                    name: 'Item test 2',
-                    price: 145000,
-                    qnt: 2,
-                  },
-                ],
-              }
-            },
-            "Send with product items": {
-              value: { 
-                phone: '5521999999999',
-                isGroup: false,
-                items: [
-                  {
-                    type: 'product',
-                    id: '37878774457',
-                    price: 148000,
-                    qnt: 2,
-                  },
-                ],
-              }
-            },
-            "Send with custom items and options": {
-              value: { 
-                phone: '5521999999999',
-                isGroup: false,
-                items: [
-                  {
-                    type: 'custom',
-                    name: 'Item test',
-                    price: 120000,
-                    qnt: 2,
-                  },
-                ],
-                options: {
-                  tax: 10000,
-                  shipping: 4000,
-                  discount: 10000,
-                }
-              }
-            },
-          }
-        }
-      }
-     }
-   */
-  const { phone, items } = req.body;
-
-  const options = req.body.options || {};
-
+export async function sendMentioned(req: Request, res: Response): Promise<Response | void> {
   try {
-    const results: any = [];
-    for (const contato of phone) {
-      results.push(await req.client.sendOrderMessage(contato, items, options));
+    const { session } = req.params;
+    const { phone, message, mentions } = req.body;
+
+    if (!phone || !message) {
+      return sendError(res, 'Phone and message are required');
     }
 
-    if (results.length === 0)
-      res.status(400).json('Error sending order message');
-    req.io.emit('mensagem-enviada', results);
-    returnSucess(res, results);
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
+
+    // Para mensões, normalmente você precisa modificar a mensagem para incluir as menções
+    // Implementação específica pode variar dependendo da versão do WPPConnect
+    const result = await client.sendText(phone, message);
+    return sendSuccess(res, result, 'Message with mentions sent successfully');
+
   } catch (error) {
-    returnError(req, res, error);
+    return handleControllerError(error, res, 'send mentioned message');
   }
 }
 
-export async function sendPollMessage(req: Request, res: Response) {
-  /**
-   * #swagger.tags = ["Messages"]
-     #swagger.autoBody=false
-     #swagger.security = [{
-            "bearerAuth": []
-     }]
-     #swagger.parameters["session"] = {
-      schema: 'NERDWHATS_AMERICA'
-     }
-    #swagger.requestBody = {
-        required: true,
-        "@content": {
-            "application/json": {
-                schema: {
-                    type: "object",
-                    properties: {
-                        phone: { type: "string" },
-                        isGroup: { type: "boolean" },
-                        name: { type: "string" },
-                        choices: { type: "array" },
-                        options: { type: "object" },
-                    }
-                },
-                examples: {
-                    "Default": {
-                        value: {
-                          phone: '5521999999999',
-                          isGroup: false,
-                          name: 'Poll name',
-                          choices: ['Option 1', 'Option 2', 'Option 3'],
-                          options: {
-                            selectableCount: 1,
-                          }
-                        }
-                    },
-                }
-            }
-        }
-    }
-   */
-  const { phone, name, choices, options } = req.body;
-
+export async function sendFile(req: Request, res: Response): Promise<Response | void> {
   try {
-    const results: any = [];
+    const { session } = req.params;
+    const { phone, path, filename, caption } = req.body;
 
-    for (const contact of phone) {
-      results.push(
-        await req.client.sendPollMessage(contact, name, choices, options)
-      );
+    if (!phone || !path) {
+      return sendError(res, 'Phone and path are required');
     }
 
-    if (results.length === 0)
-      return returnError(req, res, 'Error sending poll message');
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
 
-    returnSucess(res, results);
+    const result = await client.sendFile(phone, path, filename, caption);
+    return sendSuccess(res, result, 'File sent successfully');
+
   } catch (error) {
-    returnError(req, res, error);
+    return handleControllerError(error, res, 'send file');
   }
 }
 
-export async function sendStatusText(req: Request, res: Response) {
-  /**
-   * #swagger.tags = ["Messages"]
-     #swagger.autoBody=false
-     #swagger.security = [{
-            "bearerAuth": []
-     }]
-     #swagger.parameters["session"] = {
-      schema: 'NERDWHATS_AMERICA'
-     }
-     #swagger.requestBody = {
-      required: true,
-      content: {
-        'application/json': {
-          schema: {
-            type: 'object',
-            properties: {
-              phone: { type: 'string' },
-              isGroup: { type: 'boolean' },
-              message: { type: 'string' },
-              messageId: { type: 'string' }
-            },
-            required: ['phone', 'isGroup', 'message']
-          },
-          examples: {
-            Default: {
-              value: {
-                phone: '5521999999999',
-                isGroup: false,
-                message: 'Reply to message',
-                messageId: '<id_message>'
-              }
-            }
-          }
-        }
-      }
-    }
-   */
-  const { message } = req.body;
-
+export async function sendImage(req: Request, res: Response): Promise<Response | void> {
   try {
-    const results: any = [];
-    results.push(await req.client.sendText('status@broadcast', message));
+    const { session } = req.params;
+    const { phone, path, filename, caption } = req.body;
 
-    if (results.length === 0) res.status(400).json('Error sending message');
-    returnSucess(res, results);
+    if (!phone || !path) {
+      return sendError(res, 'Phone and path are required');
+    }
+
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
+
+    const result = await client.sendImage(phone, path, filename, caption);
+    return sendSuccess(res, result, 'Image sent successfully');
+
   } catch (error) {
-    returnError(req, res, error);
+    return handleControllerError(error, res, 'send image');
   }
 }
 
-export async function replyMessage(req: Request, res: Response) {
-  /**
-   * #swagger.tags = ["Messages"]
-     #swagger.autoBody=false
-     #swagger.security = [{
-            "bearerAuth": []
-     }]
-     #swagger.parameters["session"] = {
-      schema: 'NERDWHATS_AMERICA'
-     }
-     #swagger.requestBody = {
-      required: true,
-      "@content": {
-        "application/json": {
-          schema: {
-            type: "object",
-            properties: {
-              "phone": { type: "string" },
-              "isGroup": { type: "boolean" },
-              "message": { type: "string" },
-              "messageId": { type: "string" }
-            }
-          },
-          examples: {
-            "Default": {
-              value: {
-                "phone": "5521999999999",
-                "isGroup": false,
-                "message": "Reply to message",
-                "messageId": "<id_message>"
-              }
-            }
-          }
-        }
-      }
-    }
-   */
-  const { phone, message, messageId } = req.body;
-
+export async function sendVideo(req: Request, res: Response): Promise<Response | void> {
   try {
-    const results: any = [];
-    for (const contato of phone) {
-      results.push(await req.client.reply(contato, message, messageId));
+    const { session } = req.params;
+    const { phone, path, filename, caption } = req.body;
+
+    if (!phone || !path) {
+      return sendError(res, 'Phone and path are required');
     }
 
-    if (results.length === 0) res.status(400).json('Error sending message');
-    req.io.emit('mensagem-enviada', { message: message, to: phone });
-    returnSucess(res, results);
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
+
+    const result = await client.sendVideo(phone, path, filename, caption);
+    return sendSuccess(res, result, 'Video sent successfully');
+
   } catch (error) {
-    returnError(req, res, error);
+    return handleControllerError(error, res, 'send video');
   }
 }
 
-export async function sendMentioned(req: Request, res: Response) {
-  /**
-   * #swagger.tags = ["Messages"]
-     #swagger.autoBody=false
-     #swagger.security = [{
-            "bearerAuth": []
-     }]
-     #swagger.parameters["session"] = {
-      schema: 'NERDWHATS_AMERICA'
-     }
-     #swagger.requestBody = {
-  required: true,
-  "@content": {
-    "application/json": {
-      schema: {
-        type: "object",
-        properties: {
-          "phone": { type: "string" },
-          "isGroup": { type: "boolean" },
-          "message": { type: "string" },
-          "mentioned": { type: "array", items: { type: "string" } }
-        },
-        required: ["phone", "message", "mentioned"]
-      },
-      examples: {
-        "Default": {
-          value: {
-            "phone": "groupId@g.us",
-            "isGroup": true,
-            "message": "Your text message",
-            "mentioned": ["556593077171@c.us"]
-          }
-        }
-      }
+export async function sendContact(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const { session } = req.params;
+    const { phone, contactId } = req.body;
+
+    if (!phone || !contactId) {
+      return sendError(res, 'Phone and contactId are required');
     }
+
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
+
+    const result = await client.sendContact(phone, contactId);
+    return sendSuccess(res, result, 'Contact sent successfully');
+
+  } catch (error) {
+    return handleControllerError(error, res, 'send contact');
   }
 }
-   */
-  const { phone, message, mentioned } = req.body;
 
+export async function sendButtons(req: Request, res: Response): Promise<Response | void> {
   try {
-    let response;
-    for (const contato of phone) {
-      response = await req.client.sendMentioned(
-        `${contato}`,
-        message,
-        mentioned
-      );
+    const { session } = req.params;
+    const { phone, title, buttons } = req.body;
+
+    if (!phone || !title || !buttons) {
+      return sendError(res, 'Phone, title and buttons are required');
     }
 
-    res.status(201).json({ status: 'success', response: response });
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
+
+    const result = await client.sendButtons(phone, title, buttons);
+    return sendSuccess(res, result, 'Buttons sent successfully');
+
   } catch (error) {
-    req.logger.error(error);
-    res.status(500).json({
-      status: 'error',
-      message: 'Error on send message mentioned',
-      error: error,
-    });
+    return handleControllerError(error, res, 'send buttons');
   }
 }
-export async function sendImageAsSticker(req: Request, res: Response) {
-  /**
-   * #swagger.tags = ["Messages"]
-     #swagger.autoBody=false
-     #swagger.security = [{
-            "bearerAuth": []
-     }]
-     #swagger.parameters["session"] = {
-      schema: 'NERDWHATS_AMERICA'
-     }
-     #swagger.requestBody = {
-      required: true,
-      "@content": {
-        "application/json": {
-          schema: {
-            type: "object",
-            properties: {
-              "phone": { type: "string" },
-              "isGroup": { type: "boolean" },
-              "path": { type: "string" }
-            },
-            required: ["phone", "path"]
-          },
-          examples: {
-            "Default": {
-              value: {
-                "phone": "5521999999999",
-                "isGroup": true,
-                "path": "<path_file>"
-              }
-            }
-          }
-        }
-      }
-    }
-   */
-  const { phone, path } = req.body;
 
-  if (!path && !req.file)
-    res.status(401).send({
-      message: 'Sending the file is mandatory',
-    });
-
-  const pathFile = path || req.file?.path;
-
+export async function sendList(req: Request, res: Response): Promise<Response | void> {
   try {
-    const results: any = [];
-    for (const contato of phone) {
-      results.push(await req.client.sendImageAsSticker(contato, pathFile));
+    const { session } = req.params;
+    const { phone, title, description, buttonText, sections } = req.body;
+
+    if (!phone || !title || !sections) {
+      return sendError(res, 'Phone, title and sections are required');
     }
 
-    if (results.length === 0) res.status(400).json('Error sending message');
-    if (req.file) await unlinkAsync(pathFile);
-    returnSucess(res, results);
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
+
+    const result = await client.sendList(phone, title, description, buttonText, sections);
+    return sendSuccess(res, result, 'List sent successfully');
+
   } catch (error) {
-    returnError(req, res, error);
+    return handleControllerError(error, res, 'send list');
   }
 }
-export async function sendImageAsStickerGif(req: Request, res: Response) {
-  /**
-   * #swagger.tags = ["Messages"]
-     #swagger.autoBody=false
-     #swagger.security = [{
-            "bearerAuth": []
-     }]
-     #swagger.parameters["session"] = {
-      schema: 'NERDWHATS_AMERICA'
-     }
-     #swagger.requestBody = {
-      required: true,
-      content: {
-        'application/json': {
-          schema: {
-            type: 'object',
-            properties: {
-              phone: { type: 'string' },
-              isGroup: { type: 'boolean' },
-              path: { type: 'string' },
-            },
-            required: ['phone', 'path'],
-          },
-          examples: {
-            'Default': {
-              value: {
-                phone: '5521999999999',
-                isGroup: true,
-                path: '<path_file>',
-              },
-            },
-          },
-        },
-      },
-    }
-   */
-  const { phone, path } = req.body;
 
-  if (!path && !req.file)
-    res.status(401).send({
-      message: 'Sending the file is mandatory',
-    });
-
-  const pathFile = path || req.file?.path;
-
+export async function deleteMessage(req: Request, res: Response): Promise<Response | void> {
   try {
-    const results: any = [];
-    for (const contato of phone) {
-      results.push(await req.client.sendImageAsStickerGif(contato, pathFile));
+    const { session } = req.params;
+    const { messageId } = req.body;
+
+    if (!messageId) {
+      return sendError(res, 'MessageId is required');
     }
 
-    if (results.length === 0) res.status(400).json('Error sending message');
-    if (req.file) await unlinkAsync(pathFile);
-    returnSucess(res, results);
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
+
+    const result = await client.deleteMessage(messageId);
+    return sendSuccess(res, result, 'Message deleted successfully');
+
   } catch (error) {
-    returnError(req, res, error);
+    return handleControllerError(error, res, 'delete message');
+  }
+}
+
+export async function getMessages(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const { session } = req.params;
+    const { chatId } = req.query;
+
+    if (!chatId) {
+      return sendError(res, 'ChatId is required');
+    }
+
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
+
+    const result = await client.getMessages(chatId as string);
+    return sendSuccess(res, result, 'Messages retrieved successfully');
+
+  } catch (error) {
+    return handleControllerError(error, res, 'get messages');
+  }
+}
+
+export async function getChats(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const { session } = req.params;
+
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
+
+    const result = await client.getChats();
+    return sendSuccess(res, result, 'Chats retrieved successfully');
+
+  } catch (error) {
+    return handleControllerError(error, res, 'get chats');
+  }
+}
+
+export async function getContacts(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const { session } = req.params;
+
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
+
+    const result = await client.getContacts();
+    return sendSuccess(res, result, 'Contacts retrieved successfully');
+
+  } catch (error) {
+    return handleControllerError(error, res, 'get contacts');
+  }
+}
+
+export async function isConnected(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const { session } = req.params;
+
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
+
+    const result = await client.getConnectionState();
+    return sendSuccess(res, result, 'Connection status retrieved successfully');
+
+  } catch (error) {
+    return handleControllerError(error, res, 'check connection');
+  }
+}
+
+export async function getStatus(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const { session } = req.params;
+
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
+
+    const result = await client.getMyStatus();
+    return sendSuccess(res, result, 'Status retrieved successfully');
+
+  } catch (error) {
+    return handleControllerError(error, res, 'get status');
+  }
+}
+
+export async function setStatus(req: Request, res: Response): Promise<Response | void> {
+  try {
+    const { session } = req.params;
+    const { status } = req.body;
+
+    if (!status) {
+      return sendError(res, 'Status is required');
+    }
+
+    const client = getSession(session);
+    if (!client) {
+      return sendError(res, 'Session not found');
+    }
+
+    const result = await client.setMyStatus(status);
+    return sendSuccess(res, result, 'Status set successfully');
+
+  } catch (error) {
+    return handleControllerError(error, res, 'set status');
   }
 }
