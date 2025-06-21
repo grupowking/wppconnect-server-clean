@@ -1,0 +1,18 @@
+# nixpacks.toml
+
+[phases.setup]
+# Lista de pacotes do sistema (Debian/Ubuntu) necessários 
+# para o Puppeteer/Chromium rodar corretamente na nuvem.
+aptPkgs = [
+  'libnss3',
+  'libatk1.0-0',
+  'libatk-bridge2.0-0',
+  'libcups2',
+  'libxkbcommon0',
+  'libatspi2.0-0',
+  'libxrandr2',
+  'libgbm1',
+  'libglib2.0-0', # <-- A biblioteca que está faltando!
+  'libx11-xcb1',
+  'libgtk-3-0'
+]
