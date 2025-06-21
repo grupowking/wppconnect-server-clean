@@ -58,7 +58,7 @@ export default class CreateSessionUtil {
           userDataDir: req.serverOptions.customUserDataDir + session,
         };
       }
-      
+
       // VERSÃO CORRIGIDA DA CRIAÇÃO DO CLIENTE
       const wppClient = await create(
         Object.assign(
@@ -126,8 +126,8 @@ export default class CreateSessionUtil {
                 '--disable-accelerated-2d-canvas',
                 '--no-first-run',
                 '--no-zygote',
-                '--single-process', 
-                '--disable-gpu'
+                '--single-process',
+                '--disable-gpu',
               ],
             },
           }

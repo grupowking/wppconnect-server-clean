@@ -72,7 +72,6 @@ export default async function statusConnection(
 
     // ✅ AGORA 'next()' só é chamado no "caminho feliz"
     return next();
-    
   } catch (error) {
     req.logger.error(error);
     // ✅ BOA PRÁTICA: Adicione 'return' aqui também

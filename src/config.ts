@@ -43,7 +43,9 @@ export default {
     level: 'silly', // Before open a issue, change level to silly and retry a action
     logger: ['console', 'file'],
   },
+
   createOptions: {
+    autoClose: 180000, // Tempo de espera de 3 minutos (em milissegundos)
     browserArgs: [
       '--disable-web-security',
       '--no-sandbox',
@@ -64,11 +66,12 @@ export default {
       '--metrics-recording-only',
       '--mute-audio',
       '--no-first-run',
-      '--safebrowsing-disable-auto-update',
+      '--safeBrowse-disable-auto-update',
       '--ignore-certificate-errors',
       '--ignore-ssl-errors',
       '--ignore-certificate-errors-spki-list',
     ],
+
     /**
      * Example of configuring the linkPreview generator
      * If you set this to 'null', it will use global servers; however, you have the option to define your own server
