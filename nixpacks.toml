@@ -15,5 +15,5 @@ aptPkgs = [
   'libglib2.0-0',
   'libx11-xcb1',
   'libgtk-3-0',
-  'libasound2' # <-- ADICIONADO AQUI
+  'libasound2t64' # <-- CORRIGIDO AQUI!
 ]
