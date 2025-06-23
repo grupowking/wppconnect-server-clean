@@ -1,9 +1,7 @@
-// VERSÃO FINAL E LIMPA
+// VERSÃO FINAL CORRIGIDA E COMPLETA
 import { Router } from 'express';
-// import multer from 'multer'; // Removido pois não há mais rotas de upload
 import swaggerUi from 'swagger-ui-express';
 
-// import uploadConfig from '../config/upload'; // Removido
 // Apenas os controllers que SÃO REALMENTE USADOS são importados
 import { encryptSession } from '../controller/encryptController';
 import * as MessageController from '../controller/messageController';
@@ -14,7 +12,6 @@ import * as prometheusRegister from '../middleware/instrumentation';
 import statusConnection from '../middleware/statusConnection';
 import swaggerDocument from '../swagger.json';
 
-// const upload = multer(uploadConfig as any) as any; // Removido
 const routes: Router = Router();
 
 // Generate Token
@@ -64,6 +61,14 @@ routes.post(
 );
 routes.post(
   '/api/:session/send-file-base64',
+  verifyToken,
+  statusConnection,
+  MessageController.sendFile
+);
+
+// ROTA /send-file REATIVADA PARA O MÉTODO "PATH"
+routes.post(
+  '/api/:session/send-file',
   verifyToken,
   statusConnection,
   MessageController.sendFile
